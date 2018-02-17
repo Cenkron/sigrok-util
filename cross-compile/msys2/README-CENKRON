@@ -1,0 +1,117 @@
+-------------------------------------------------------------------------------
+README
+-------------------------------------------------------------------------------
+
+This is the Cenkron script for building sigrok-util and pulseview natively
+within Windows using the msys2 environment based on mingw.
+Ths script can build 32 or 64 bit, debug or release executables.
+This script does not at this time make a Windows installer.
+
+
+Status
+------
+
+Maybe NOT fully working! This is work in progress.
+
+
+Requirements
+------------
+
+This build script requires the MSYS2 enviroment be installed on your computer running Windows.
+If you have 32 bit Windows on your computer, you should install the 32 bit version of MSYS2.
+If you have 64 bit Windows on your computer, you should install the 64 bit version of MSYS2.
+
+There is an excellent explantaion of the MSYS2 install process at:
+
+https://github.com/orlp/dev-on-windows/wiki/Installing-GCC--&-MSYS2
+
+If you have 32 bit Windows, you must install 32 bit Python 3.6.4 (x86) and must build using
+the mingw32 shell of MSYS2, to build 32 bit versions of the sigrok programs.
+
+If you have 64 bit Windows, you can build either 32 or 64 bit versions of the sigrok programs,
+and must install the matching version of Python 3.6.4 (x86 or AMD64) matching the sigrok build.
+
+This build script requires the selected version of Python 3.6.4 be installed in Windows before
+starting the build.
+
+
+MSYS2 Toolchain setup
+---------------
+
+First, you need to install and update the MSYS2 system as described on the webpage linked
+above, down through step 5.  In doing step 5, you may want to not install the 64 bit tools
+if your computer is 32 bit.  At a minimum, you need base-devel, git, the applicable toolchain,
+and the applicable cmake.  You don't need subversion or mercurial to use this script.
+
+This is all that is needed to bootstrap your MSYS2 system. You can now switch to one of
+the MSYS2 project shells (mingw32 or mingw64) to use the build-msys2 script to install all
+other required MSYS2 packages
+
+Start the selected shell...either 32 bit (mingw32) or 64 bit (mingw64)
+	
+	$ ./build-msys2 prepare
+
+Allow pacman to install all of the requested packages.  Once started, this takes an hour or so.
+
+If you intend to be able to build both 32 bit and 64 bit sigrok programs, then you must do this
+procedure once in each of the two MSYS2 shells.
+
+
+Python setup
+---------------
+
+You must install Python 3.6.4 prior to performing the build, as it is used to provide some
+of the files used in the build.  The 32/64 bit version must match the intended build of sigrok.
+
+You must install Python in the custom location, C:\Python36-32 or C:\Python36-64, depending
+whether it is the 32 or 64 bit version.  Of course, you must install the 32 bit version on 32 bit Windows.
+
+If  you intend to build both 32 bit and 64 bit sigrok programs, then you must install both
+32 and 64 bit versions of Python.  In this case, allow, at most, only one of them to do ancillary
+functions like setting up file associations so they don't conflict with each other.  In general,
+you can make use of only one of them at a time.
+
+You will need to configure the PYTHONPATH environment variable matching the version of current build activity:
+
+	setx PYTHONPATH C:\Python36-32;C:\Python36-32\DLLs;C:\Python36-32\Lib;C:\Python36-32\Lib\Lib-tk;
+or
+	setx PYTHONPATH C:\Python36-64;C:\Python36-64\DLLs;C:\Python36-64\Lib;C:\Python36-64\Lib\Lib-tk;
+
+
+Building
+--------
+
+By default, the script will build the release version of sigrok.  You can edit the script
+to changes it the debug version.  It will build either 32 or 64 bit sigrok depending on which
+MSYS2 shell you use to run the script.  You must build 32 bit sigrok if you are running on 32 bit Windows.
+
+	$ ./build-msys2
+
+Per default it will install the compiled packages in:
+
+	$HOME/sr-<build-type>-<32/64>
+
+Please edit the script if you want to change any settings.
+
+
+Installing
+----------
+
+At this time, no Windows installer is built.  It is a work in progress.  Install a current nightly
+build from the sigrok.org website, and replace the contents of the installed bin directory with the
+contents of the sr-xxxxx-yy/bin directory of the build result.
+
+
+Final Notes
+-----------
+
+Until you have learned how to do this successfully, it is recommended that you pick one build type
+(32 or 64 bit) and stick with it until you know what you are doing.  It is possible to work with both,
+but there is probably no reason to do so unless you are a developer.
+
+This build scripi is intended to be usable for ongoing software development as well as a one-time build,
+so long as only code is being changed.  When necessary, the script can be run in the "clean" mode to
+delete the result of previous build activities and start fresh:
+
+	$ ./build-msys2 clean
+

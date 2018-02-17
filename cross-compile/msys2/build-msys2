@@ -1,0 +1,410 @@
+#!/bin/sh
+##
+## This file is part of the sigrok-util project.
+##
+## Copyright (C) 2017 Brian Johnson <Cenkron@BrianAndChristine.com>
+## based on previous version:
+## Copyright (C) 2016 Uwe Hermann <uwe@hermann-uwe.de>
+##
+## This program is free software; you can redistribute it and/or modify
+## it under the terms of the GNU General Public License as published by
+## the Free Software Foundation; either version 2 of the License, or
+## (at your option) any later version.
+##
+## This program is distributed in the hope that it will be useful,
+## but WITHOUT ANY WARRANTY; without even the implied warranty of
+## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+## GNU General Public License for more details.
+##
+## You should have received a copy of the GNU General Public License
+## along with this program; if not, see <http://www.gnu.org/licenses/>.
+##
+
+set -e
+
+# The build type
+DEBUG=0
+#DEBUG=1
+
+# Edit this to control verbose build output.
+#V="V=1 VERBOSE=1"
+
+# Edit this to enable/disable/modify parallel compiles.
+#PARALLEL="-j 1"
+#PARALLEL="-j 2"
+PARALLEL="-j 4"
+
+# The base path where the compiled packages will be installed.
+BASESRC="$HOME/sr"
+
+# -----------------------------------------------------------------------------
+# You usually don't need to change anything below this point
+# -----------------------------------------------------------------------------
+
+# Abort if the user runs the script in an "MSYS2 MSYS" shell.
+if [ $MSYSTEM = "MSYS" ]; then
+	echo "Building in an 'MSYS2 MSYS' shell will not work, aborting."
+	echo "Please use the 'MSYS2 MinGW 64-bit' (or 32-bit) shell."
+	exit
+fi
+
+# The build target type: "i686" (32bit) or "x86_64" (64bit)
+# is selected based on which MSYS2 shell is being used to do the build
+TARGET=$MSYSTEM_CARCH
+
+VER_SIGROK_FIRMWARE_FX2LAFW=0.1.6
+
+# -----------------------------------------------------------------------------
+# Prepare the MSYS2 package environment
+# Run "build-msys2 prepare" once in each MSYS2 shell you plan to use for building
+# -----------------------------------------------------------------------------
+
+if [ "x$1" = "xprepare" ]; then
+	W="mingw-w64-$TARGET"
+	pacman -S --needed base-devel git wget \
+	$W-toolchain $W-cmake $W-boost $W-libzip $W-swig $W-jasper \
+	$W-doxygen $W-check $W-qt5-static $W-glib2 $W-glibmm \
+	$W-python3-gobject
+	exit
+fi
+
+# -----------------------------------------------------------------------------
+# Determine the build directory tree name and properties
+# -----------------------------------------------------------------------------
+
+# Used to designate special build versions
+BUILDVER=
+
+# The path where the compiled packages will be installed.
+if [ $TARGET = "i686" ]; then
+	SUFFIX="32"
+else
+	SUFFIX="64"
+fi
+if [ $DEBUG = 1 ]; then
+	DBGFLAG="CFLAGS=-g"
+	BUILD_TYPE="Debug"
+	PREFIX="$BASESRC-debug-$SUFFIX$BUILDVER"
+else
+	DBGFLAG=
+	BUILD_TYPE="Release"
+	PREFIX="$BASESRC-release-$SUFFIX$BUILDVER"
+fi
+BUILDDIR="$PREFIX/build"
+
+echo Building $BUILD_TYPE in $PREFIX
+
+# Eliminate the host python path environment variable, if any is set
+export PYTHONPATH=
+
+# -----------------------------------------------------------------------------
+# Prepare the build directory tree
+# -----------------------------------------------------------------------------
+
+# If requested, delete any previous build contents
+if [ "x$1" = "xclean" ]; then
+	rm -rf $PREFIX
+fi
+
+# If not alreay present, create the various build directories
+mkdir -p $BUILDDIR
+mkdir -p $PREFIX/bin
+mkdir -p $PREFIX/lib/pkgconfig
+
+# -----------------------------------------------------------------------------
+# Internal definitions
+# -----------------------------------------------------------------------------
+
+# Include the build-private pkgconfig directory
+export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH"
+
+C="$C --prefix=$PREFIX"
+L="--disable-shared --enable-static"
+LB="--enable-shared --enable-static"
+
+# Path to Qt binaries (needed for cmake to find the Qt libs).
+PATH="$MINGW_PREFIX/qt5-static/bin:$PATH"
+
+WGET="wget -c --quiet"
+GIT_CLONE="git clone --depth=1"
+
+REPO_BASE="git://sigrok.org"
+REPO_BASE2="git://github.com/Cenkron"
+
+# Enter the source build directory
+cd $BUILDDIR
+
+# -----------------------------------------------------------------------------
+# Python 3.6.4 is assumed already installed on this host, either in
+# C:\Python36-32 or in C:\Python36-64, whichever matches this build type
+# -----------------------------------------------------------------------------
+
+echo
+echo Installing python components
+	
+PYNAME=python36
+
+if [ ! -f $PREFIX/bin/$PYNAME.dll ]; then
+
+# Copy up the Python DLL and include files from the installed Python 3.6
+
+PYROOT=C:/$PYNAME-$SUFFIX
+
+PYDLL="$(find $PYROOT -name $PYNAME.dll 2>/dev/null)"
+#echo PYROOT = $PYROOT
+#echo PYDLL = $PYDLL
+cp $PYDLL $PREFIX/bin/
+#echo
+#ls -l $PREFIX/bin/*
+
+PYINC="$(find $PYROOT -name include 2>/dev/null)"
+#echo PYINC = $PYINC
+#echo
+
+# Make the matching import library for the DLL
+
+gendef $PYDLL
+dlltool \
+	--dllname $PYDLL \
+	--def $PYNAME.def \
+	--output-lib $PYROOT/lib$PYNAME.a
+rm -f python*.def
+cp $PYROOT/lib$PYNAME.a $PREFIX/lib/
+
+# Create a dummy pythonX.pc file so that pkg-config will find the build files.
+
+cat >$PREFIX/lib/pkgconfig/$PYNAME.pc <<EOF 
+prefix=$PREFIX
+exec_prefix=\${prefix}
+libdir=\${exec_prefix}/lib
+includedir=\${prefix}/include
+Name: Python
+Description: Python library
+Version: 3.6
+Libs: "-L$PYROOT -l$PYNAME"
+Cflags: "-I$PYINC"
+EOF
+
+#echo
+#echo $PYNAME.pc:
+#cat $PREFIX/lib/pkgconfig/$PYNAME.pc
+#exit
+
+# Zadig (we ship this with frontends for easy driver switching).
+
+$WGET http://zadig.akeo.ie/downloads/zadig.exe -O $PREFIX/zadig.exe
+$WGET http://zadig.akeo.ie/downloads/zadig_xp.exe -O $PREFIX/zadig_xp.exe
+fi
+
+# -----------------------------------------------------------------------------
+# Install the executable dependency DLLs
+# -----------------------------------------------------------------------------
+
+echo
+echo Installing the dependency DLLs
+
+if [ ! -f $PREFIX/bin/zlib1.dll ]; then
+	if [ $TARGET = "x86_64" ]; then
+		cp $MINGW_PREFIX/bin/libgcc_s_seh-1.dll $PREFIX/bin/
+	else
+		cp $MINGW_PREFIX/bin/libgcc_s_dw2-1.dll $PREFIX/bin/
+	fi
+	cp $MINGW_PREFIX/bin/libwinpthread-1.dll    $PREFIX/bin/
+	cp $MINGW_PREFIX/bin/libglib-2.0-0.dll      $PREFIX/bin/
+	cp $MINGW_PREFIX/bin/libstdc++-6.dll        $PREFIX/bin/
+	cp $MINGW_PREFIX/bin/libiconv-2.dll         $PREFIX/bin/
+	cp $MINGW_PREFIX/bin/libpcre-1.dll          $PREFIX/bin/
+	cp $MINGW_PREFIX/bin/libintl-8.dll          $PREFIX/bin/
+	cp $MINGW_PREFIX/bin/libzip-5.dll           $PREFIX/bin/
+	cp $MINGW_PREFIX/bin/libbz2-1.dll           $PREFIX/bin/
+	cp $MINGW_PREFIX/bin/libeay32.dll           $PREFIX/bin/
+	cp $MINGW_PREFIX/bin/ssleay32.dll           $PREFIX/bin/
+	cp $MINGW_PREFIX/bin/zlib1.dll              $PREFIX/bin/
+fi
+
+# -----------------------------------------------------------------------------
+# libusb
+# -----------------------------------------------------------------------------
+	
+echo
+echo Building libusb
+
+if [ ! -f $PREFIX/lib/libusb-1.0.a ]; then
+	if [ -f libusb/Makefile ]; then
+		cd libusb
+	else
+		rm -rf libusb
+		$GIT_CLONE git://github.com/dickens/libusb -b event-abstraction-v4
+		cd libusb
+		./bootstrap.sh
+		./configure $C $LB
+	fi
+	make -j1 $V $DBGFLAG
+	make install $V
+	cd ..
+fi
+	
+# -----------------------------------------------------------------------------
+# libserialport
+# -----------------------------------------------------------------------------
+	
+echo
+echo Building libserialport
+
+if [ -f $PREFIX/lib/libserialport.a ]; then
+	cd libserialport/build
+else
+	rm -rf libserialport
+	$GIT_CLONE $REPO_BASE/libserialport
+	cd libserialport
+	./autogen.sh
+	mkdir -p build
+	cd build
+	../configure $C $LB
+fi
+make $PARALLEL $V $DBGFLAG
+make install $V
+cd ../..
+	
+# -----------------------------------------------------------------------------
+# libsigrok
+# -----------------------------------------------------------------------------
+
+echo
+echo Building libsigrok
+
+if [ -f libsigrok/build/Makefile ]; then
+	cd libsigrok/build
+else
+	rm -rf libsigrok
+	$GIT_CLONE $REPO_BASE/libsigrok
+	cd libsigrok
+	./autogen.sh
+	mkdir -p build
+	cd build
+	../configure $C $L --disable-python
+fi
+make $PARALLEL $V $DBGFLAG
+make install $V 
+#	make check $V  TODO
+cd ../..
+
+# -----------------------------------------------------------------------------
+# libsigrokdecode
+# -----------------------------------------------------------------------------
+
+echo
+echo Building libsigrokdecode
+
+if [ -f libsigrokdecode/build/Makefile ]; then
+	cd libsigrokdecode/build
+else
+	rm -rf libsigrokdecode
+	$GIT_CLONE $REPO_BASE2/libsigrokdecode -b msys2
+	cd libsigrokdecode
+	./autogen.sh
+	mkdir -p build
+	cd build
+	../configure $C $L --enable-msys2
+fi
+
+make $PARALLEL $V $DBGFLAG
+make install $V
+#	make check $V  TODO
+cd ../..
+
+# -----------------------------------------------------------------------------
+# sigrok-firmware
+# -----------------------------------------------------------------------------
+
+echo
+echo Installing sigrok-firmware
+
+if [ ! -d $PREFIX/share/sigrok-firmware ]; then
+	$GIT_CLONE $REPO_BASE/sigrok-firmware
+	cd sigrok-firmware
+	./autogen.sh
+	mkdir -p build
+	cd build
+	# Nothing gets cross-compiled here, we just need 'make install' basically.
+	../configure $C
+	make install $V
+	cd ../..
+fi
+
+# -----------------------------------------------------------------------------
+# sigrok-firmware-fx2lafw
+# -----------------------------------------------------------------------------
+
+echo
+echo Installing sigrok-firmware-fx2lafw
+
+if [ ! -f $PREFIX/share/sigrok-firmware/fx2lafw-sigrok-fx2-8ch.fw ]; then
+	$WGET http://sigrok.org/download/binary/sigrok-firmware-fx2lafw/sigrok-firmware-fx2lafw-bin-$VER_SIGROK_FIRMWARE_FX2LAFW.tar.gz
+	tar xfz sigrok-firmware-fx2lafw-bin-$VER_SIGROK_FIRMWARE_FX2LAFW.tar.gz
+	cd sigrok-firmware-fx2lafw-bin-$VER_SIGROK_FIRMWARE_FX2LAFW
+	cp *.fw $PREFIX/share/sigrok-firmware/
+	cd ..
+fi
+	
+# -----------------------------------------------------------------------------
+# sigrok-cli
+# -----------------------------------------------------------------------------
+
+echo
+echo Building sigrok-cli
+
+# Library selections patch for sigrok-cli makefile
+LIBDIRS="-L$PREFIX/lib"
+LIBS="-lsigrok -lsigrokdecode -lsigrokcxx -l$PYNAME -lusb-1.0 -lserialport -lzip -lglib-2.0 -lintl -lws2_32"
+export SIGROK_CLI_LIBS="$LIBDIRS $LIBS"
+
+if [ -f sigrok-cli/build/Makefile ]; then
+	cd sigrok-cli/build
+else
+	rm -rf sigrok-cli
+	$GIT_CLONE $REPO_BASE/sigrok-cli
+	cd sigrok-cli
+	./autogen.sh
+	rm -rf build
+	mkdir -p build
+	cd build
+	../configure $C $L
+fi
+make $PARALLEL $V $DBGFLAG
+make install $V
+#	makensis -DHOME=$HOME contrib/sigrok-cli_cross.nsi  TODO
+cd ../..
+
+# -----------------------------------------------------------------------------
+# PulseView
+# -----------------------------------------------------------------------------
+
+echo
+echo Building pulseview
+
+if [ -f pulseview/build/Makefile ]; then
+	cd pulseview/build
+else
+	rm -rf pulseview
+	git clone $REPO_BASE2/pulseview -b msys2
+	cd pulseview
+	mkdir -p build
+	cd build
+	cmake \
+		-G "Unix Makefiles" \
+		-DMSYS2=1 \
+		-DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+		-DCMAKE_INSTALL_PREFIX:PATH=$PREFIX \
+		-DCMAKE_LIBRARY_PATH=$PREFIX/lib \
+		-DDISABLE_WERROR=y \
+		-DENABLE_TESTS=n \
+		..
+fi
+make $PARALLEL $V
+make install $V
+#	make test $V  TODO
+#	makensis -DHOME=$HOME contrib/pulseview_cross.nsi  TODO
+cd ../..
+
+# -----------------------------------------------------------------------------

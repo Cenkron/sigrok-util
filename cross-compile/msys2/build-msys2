@@ -205,8 +205,10 @@ echo Installing the dependency DLLs
 
 if [ ! -f $PREFIX/bin/zlib1.dll ]; then
 	if [ $TARGET = "x86_64" ]; then
+		cp $MINGW_PREFIX/bin/libzip-5.dll       $PREFIX/bin/
 		cp $MINGW_PREFIX/bin/libgcc_s_seh-1.dll $PREFIX/bin/
 	else
+		cp $MINGW_PREFIX/bin/libzip.dll         $PREFIX/bin/
 		cp $MINGW_PREFIX/bin/libgcc_s_dw2-1.dll $PREFIX/bin/
 	fi
 	cp $MINGW_PREFIX/bin/libwinpthread-1.dll    $PREFIX/bin/
@@ -215,7 +217,6 @@ if [ ! -f $PREFIX/bin/zlib1.dll ]; then
 	cp $MINGW_PREFIX/bin/libiconv-2.dll         $PREFIX/bin/
 	cp $MINGW_PREFIX/bin/libpcre-1.dll          $PREFIX/bin/
 	cp $MINGW_PREFIX/bin/libintl-8.dll          $PREFIX/bin/
-	cp $MINGW_PREFIX/bin/libzip-5.dll           $PREFIX/bin/
 	cp $MINGW_PREFIX/bin/libbz2-1.dll           $PREFIX/bin/
 	cp $MINGW_PREFIX/bin/libeay32.dll           $PREFIX/bin/
 	cp $MINGW_PREFIX/bin/ssleay32.dll           $PREFIX/bin/
@@ -393,7 +394,6 @@ else
 	cd build
 	cmake \
 		-G "Unix Makefiles" \
-		-DMSYS2=1 \
 		-DCMAKE_BUILD_TYPE=$BUILD_TYPE \
 		-DCMAKE_INSTALL_PREFIX:PATH=$PREFIX \
 		-DCMAKE_LIBRARY_PATH=$PREFIX/lib \
